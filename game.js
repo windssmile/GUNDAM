@@ -2006,4 +2006,63 @@ function calculateTerritoryThreat(tribeId) {
     
     // 标准化威胁度到0-1范围
     return Math.min(1, threatLevel);
+}
+
+// 计算部落领地紧凑度
+function calculateTerritoryCompactness(tribeId) {
+    let ownedCells = [];
+    
+    // Find all cells owned by this tribe
+    for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            if (gameBoard[y][x].owner === tribeId) {
+                ownedCells.push({ x, y });
+            }
+        }
+    }
+    
+    if (ownedCells.length <= 1) {
+        return 1; // Maximum compactness for a single cell
+    }
+    
+    // Calculate center of mass
+    let centerX = 0;
+    let centerY = 0;
+    
+    ownedCells.forEach(cell => {
+        centerX += cell.x;
+        centerY += cell.y;
+    });
+    
+    centerX /= ownedCells.length;
+    centerY /= ownedCells.length;
+    
+    // Calculate average distance from center of mass
+    let totalDistance = 0;
+    
+    ownedCells.forEach(cell => {
+        const distance = Math.sqrt(Math.pow(cell.x - centerX, 2) + Math.pow(cell.y - centerY, 2));
+        totalDistance += distance;
+    });
+    
+    const avgDistance = totalDistance / ownedCells.length;
+    
+    // Normalize compactness: smaller average distance means more compact territory
+    // Use a simple inverse relationship with a cap
+    return Math.min(1, Math.sqrt(ownedCells.length) / (avgDistance + 1));
+}
+
+// Count how many adjacent cells are owned by the same tribe
+function countAdjacentOwnedCells(x, y, tribeId) {
+    const neighbors = getNeighbors(x, y);
+    let count = 0;
+    
+    neighbors.forEach(n => {
+        const cell = gameBoard[n.y][n.x];
+        if (cell.owner === tribeId) {
+            count++;
+        }
+    });
+    
+    return count;
 } 
