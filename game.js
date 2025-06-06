@@ -3,14 +3,14 @@ const BOARD_SIZE = 100;
 const HIGH_VALUE_PERCENTAGE = 0.1;
 const INITIAL_RESOURCES = 10;
 const EXPANSION_COST = 2;
-const UPGRADE_COST_MULTIPLIER = 2.5;
+const UPGRADE_COST_MULTIPLIER = 4;
 const MECH_COST = 80;
 const MECH_MAINTENANCE = 3;
 const MECH_INITIAL_HEALTH = 100;
 const MECH_MOVEMENT_RADIUS = 5;
 const MECH_ATTACK_COST = 3;
-const MECH_SALVAGE_VALUE = 40;
-const MAX_UPGRADE_LEVEL = 5;
+const MECH_SALVAGE_VALUE = 0;
+const MAX_UPGRADE_LEVEL = 2;
 
 // Game State
 let gameBoard = [];
@@ -830,152 +830,301 @@ function aiTurn(tribe) {
     // 计算领地受到威胁的程度
     const territoryUnderThreat = calculateTerritoryThreat(tribe.id);
     
-    // Determine if we're in a good position to create a mech
-    const shouldCreateMech = 
-        (tribe.resources >= MECH_COST * 1.5) && // 提高资源要求，确保有足够资源
-        ((tribe.territory >= 25) || // 提高领地要求，从15提高到25
-         (recentlyLostMech) || // 最近失去了高达
-         (enemyMechCount > 2 && territoryUnderThreat > 0.7) || // 提高威胁阈值，只在严重威胁时才制造高达
-         (tribe.territory >= 35 && mechCount === 0)) && // 提高没有高达时的领地要求
-        (incomeExpenseRatio >= 3.0 || tribe.territory >= 40) && // 提高收入支出比要求，从2.0提高到3.0
-        (mechCount < Math.max(1, Math.floor(tribe.territory / 20))); // 降低高达数量上限，从12改为20
+    // 计算领地损失速度（通过比较当前领地与历史记录）
+    const territoryLossRate = calculateTerritoryLossRate(tribe.id);
     
-    // 如果最近失去了高达或领地受到严重威胁，提高制造高达的优先级
-    if ((recentlyLostMech || (enemyMechCount > 2 && territoryUnderThreat > 0.7)) && 
-        tribe.resources >= MECH_COST * 1.2 && 
-        tribe.territory >= 25 && 
-        mechCount < Math.floor(tribe.territory / 20)) {
+    // 计算资源增长率
+    const resourceGrowthRate = calculateResourceGrowthRate(tribe.id);
+    
+    // 计算部落排名（基于领地大小）
+    const tribeRanking = calculateTribeRanking(tribe.id);
+    
+    // 判断部落当前状态
+    const tribeState = determineTribeState(tribe.id, {
+        territoryUnderThreat,
+        territoryLossRate,
+        resourceGrowthRate,
+        incomeExpenseRatio,
+        mechCount,
+        enemyMechCount,
+        tribeRanking,
+        recentlyLostMech
+    });
+    
+    // 根据部落状态调整策略
+    switch(tribeState) {
+        case 'EMERGENCY':
+            // 紧急状态：优先防御，制造高达，保护领地
+            handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells);
+            break;
+            
+        case 'DEFENSIVE':
+            // 防御状态：平衡发展和防御
+            handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            break;
+            
+        case 'EXPANSION':
+            // 扩张状态：优先扩张领地
+            handleExpansionState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            break;
+            
+        case 'ECONOMIC':
+            // 经济状态：优先发展经济
+            handleEconomicState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            break;
+            
+        default:
+            // 平衡状态：均衡发展
+            handleBalancedState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+    }
+}
+
+// 计算部落领地损失速度
+function calculateTerritoryLossRate(tribeId) {
+    // 如果历史数据不足，返回0
+    if (historyData.territory[tribeId].length < 2) {
+        return 0;
+    }
+    
+    // 计算最近5个历史记录点的平均变化率
+    const dataPoints = Math.min(5, historyData.territory[tribeId].length);
+    let totalChange = 0;
+    
+    for (let i = 1; i < dataPoints; i++) {
+        const currentIndex = historyData.territory[tribeId].length - i;
+        const previousIndex = historyData.territory[tribeId].length - i - 1;
+        
+        if (currentIndex >= 0 && previousIndex >= 0) {
+            const current = historyData.territory[tribeId][currentIndex];
+            const previous = historyData.territory[tribeId][previousIndex];
+            totalChange += (current - previous);
+        }
+    }
+    
+    // 返回平均变化率，负值表示损失
+    return totalChange / dataPoints;
+}
+
+// 计算资源增长率
+function calculateResourceGrowthRate(tribeId) {
+    // 如果历史数据不足，返回0
+    if (historyData.resources[tribeId].length < 2) {
+        return 0;
+    }
+    
+    // 计算最近5个历史记录点的平均变化率
+    const dataPoints = Math.min(5, historyData.resources[tribeId].length);
+    let totalChange = 0;
+    
+    for (let i = 1; i < dataPoints; i++) {
+        const currentIndex = historyData.resources[tribeId].length - i;
+        const previousIndex = historyData.resources[tribeId].length - i - 1;
+        
+        if (currentIndex >= 0 && previousIndex >= 0) {
+            const current = historyData.resources[tribeId][currentIndex];
+            const previous = historyData.resources[tribeId][previousIndex];
+            totalChange += (current - previous);
+        }
+    }
+    
+    // 返回平均变化率
+    return totalChange / dataPoints;
+}
+
+// 计算部落排名
+function calculateTribeRanking(tribeId) {
+    // 根据领地大小对部落进行排名
+    const tribesByTerritory = [...tribes].sort((a, b) => b.territory - a.territory);
+    return tribesByTerritory.findIndex(t => t.id === tribeId) + 1; // 排名从1开始
+}
+
+// 确定部落当前状态
+function determineTribeState(tribeId, metrics) {
+    const {
+        territoryUnderThreat,
+        territoryLossRate,
+        resourceGrowthRate,
+        incomeExpenseRatio,
+        mechCount,
+        enemyMechCount,
+        tribeRanking,
+        recentlyLostMech
+    } = metrics;
+    
+    // 紧急状态条件
+    if (
+        (territoryUnderThreat > 0.7) || // 领地受到严重威胁
+        (territoryLossRate < -3) || // 领地快速减少
+        (recentlyLostMech) || // 最近失去高达
+        (tribeRanking === 4 && tribes[tribeId].territory < 10) // 排名最后且领地很少
+    ) {
+        addLogEntry(`进入紧急状态：检测到严重威胁或领地快速减少`, tribeId);
+        return 'EMERGENCY';
+    }
+    
+    // 防御状态条件
+    if (
+        (territoryUnderThreat > 0.4) || // 领地受到中度威胁
+        (territoryLossRate < -1) || // 领地缓慢减少
+        (enemyMechCount > mechCount * 1.5) // 敌方高达数量明显多于己方
+    ) {
+        return 'DEFENSIVE';
+    }
+    
+    // 扩张状态条件
+    if (
+        (tribeRanking > 2 && resourceGrowthRate > 0) || // 排名不是前两名但资源增长良好
+        (incomeExpenseRatio > 3 && tribes[tribeId].territory < 50) // 经济状况良好且领地中等
+    ) {
+        return 'EXPANSION';
+    }
+    
+    // 经济状态条件
+    if (
+        (resourceGrowthRate < 0) || // 资源增长为负
+        (incomeExpenseRatio < 2) || // 收入/支出比低
+        (ownedHighValueCells.length < 3) // 高价值点太少
+    ) {
+        return 'ECONOMIC';
+    }
+    
+    // 默认为平衡状态
+    return 'BALANCED';
+}
+
+// 处理紧急状态
+function handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells) {
+    // 紧急状态下，优先制造高达进行防御
+    if (tribe.resources >= MECH_COST && tribe.territory >= 15) {
         createMech(tribe.id);
-        addLogEntry(`检测到严重威胁，紧急制造高达进行防御`, tribe.id);
+        addLogEntry(`紧急状态：制造高达进行防御`, tribe.id);
         return;
     }
     
-    // First priority: Upgrade existing high value cells if we have resources
+    // 如果资源不足以制造高达，尝试升级高价值点以提高收入
     if (upgradableCells.length > 0) {
-        // Sort by level (upgrade lower level cells first)
+        // 优先升级低等级的高价值点
         upgradableCells.sort((a, b) => a.level - b.level);
         
-        // 获取成本最低的可升级单元格
         const cellToUpgrade = upgradableCells[0];
-        // 计算升级成本
         const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
         
-        // 检查是否有足够资源升级
         if (effectiveResources >= upgradeCost) {
             upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
-        }
-        // 如果资源不足以升级，尝试其他优先级
-        else if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST * 1.5) {
-            // Sort by distance to any owned high value cell
-            reachableHighValueCells.sort((a, b) => {
-                const aDistance = getMinDistanceToOwnedCells(a.x, a.y, tribe.id);
-                const bDistance = getMinDistanceToOwnedCells(b.x, b.y, tribe.id);
-                return aDistance - bDistance;
-            });
-            
-            // Expand to closest high value cell
-            const targetCell = reachableHighValueCells[0];
-            expandToCell(tribe.id, targetCell.x, targetCell.y);
-        }
-        // 如果无法扩张到高价值点，尝试普通扩张
-        else if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
-            // Calculate how many cells we can expand to
-            const maxExpansions = Math.min(
-                expandableCells.length,
-                Math.floor(Math.log2(effectiveResources / EXPANSION_COST) * 1.5) // 增加扩张能力
-            );
-            
-            // Only expand if it's affordable and there are cells to expand to
-            if (maxExpansions > 0) {
-                // Sort expandable cells by a combination of factors:
-                // 1. High value cells first
-                // 2. Cells that improve territory connectivity
-                // 3. Cells that are adjacent to more owned cells
-                expandableCells.sort((a, b) => {
-                    // First priority: high value cells
-                    if (a.highValue && !b.highValue) return -1;
-                    if (!a.highValue && b.highValue) return 1;
-                    
-                    // Second priority: cells that improve connectivity
-                    const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
-                    const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
-                    
-                    return bConnectivity - aConnectivity;
-                });
-                
-                // Expand to multiple cells if possible
-                const numExpansions = Math.min(4, Math.floor(Math.random() * maxExpansions) + 2); // 增加每回合扩张的数量
-                let expansionCost = 0;
-                
-                for (let i = 0; i < numExpansions && i < expandableCells.length; i++) {
-                    const cell = expandableCells[i];
-                    // Calculate cost for this expansion (2^i)
-                    const thisCost = Math.pow(2, i);
-                    
-                    // Check if we can afford this expansion
-                    if (effectiveResources >= thisCost + expansionCost) {
-                        expandToCell(tribe.id, cell.x, cell.y);
-                        expansionCost += thisCost;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-        // 如果以上都不可行，考虑建造高达
-        else if (shouldCreateMech) {
-            createMech(tribe.id);
+            addLogEntry(`紧急状态：升级高价值点以提高收入`, tribe.id);
+            return;
         }
     }
-    // Second priority: Expand to high value cells if they're available
-    else if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST * 1.5) {
-        // Sort by distance to any owned high value cell
+    
+    // 如果无法升级，尝试扩张到可防御性更高的位置
+    if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        // 优先选择能提高领地连通性的格子
+        expandableCells.sort((a, b) => {
+            const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
+            const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
+            return bConnectivity - aConnectivity;
+        });
+        
+        expandToCell(tribe.id, expandableCells[0].x, expandableCells[0].y);
+        addLogEntry(`紧急状态：扩张到更易防守的位置`, tribe.id);
+    }
+}
+
+// 处理防御状态
+function handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+    // 防御状态下，平衡发展经济和防御能力
+    
+    // 如果高达数量不足，考虑制造高达
+    if (mechCount < Math.max(1, Math.floor(tribe.territory / 25)) && 
+        tribe.resources >= MECH_COST * 1.2 && 
+        tribe.territory >= 20) {
+        createMech(tribe.id);
+        addLogEntry(`防御状态：制造高达加强防御`, tribe.id);
+        return;
+    }
+    
+    // 尝试升级高价值点
+    if (upgradableCells.length > 0) {
+        upgradableCells.sort((a, b) => a.level - b.level);
+        
+        const cellToUpgrade = upgradableCells[0];
+        const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
+        
+        if (effectiveResources >= upgradeCost) {
+            upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
+            return;
+        }
+    }
+    
+    // 尝试扩张到高价值点
+    if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST * 1.5) {
         reachableHighValueCells.sort((a, b) => {
             const aDistance = getMinDistanceToOwnedCells(a.x, a.y, tribe.id);
             const bDistance = getMinDistanceToOwnedCells(b.x, b.y, tribe.id);
             return aDistance - bDistance;
         });
         
-        // Expand to closest high value cell
-        const targetCell = reachableHighValueCells[0];
-        expandToCell(tribe.id, targetCell.x, targetCell.y);
+        expandToCell(tribe.id, reachableHighValueCells[0].x, reachableHighValueCells[0].y);
+        return;
     }
-    // Third priority: Normal expansion to improve territory connectivity
-    else if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
-        // Calculate how many cells we can expand to
+    
+    // 普通扩张，优先选择能提高领地连通性的格子
+    if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        expandableCells.sort((a, b) => {
+            const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
+            const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
+            return bConnectivity - aConnectivity;
+        });
+        
+        expandToCell(tribe.id, expandableCells[0].x, expandableCells[0].y);
+    }
+}
+
+// 处理扩张状态
+function handleExpansionState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+    // 扩张状态下，优先扩张领地
+    
+    // 首先尝试扩张到高价值点
+    if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        reachableHighValueCells.sort((a, b) => {
+            const aDistance = getMinDistanceToOwnedCells(a.x, a.y, tribe.id);
+            const bDistance = getMinDistanceToOwnedCells(b.x, b.y, tribe.id);
+            return aDistance - bDistance;
+        });
+        
+        expandToCell(tribe.id, reachableHighValueCells[0].x, reachableHighValueCells[0].y);
+        addLogEntry(`扩张状态：扩张到高价值点`, tribe.id);
+        return;
+    }
+    
+    // 然后尝试普通扩张，尽可能多地扩张
+    if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        // 计算可以扩张的最大数量
         const maxExpansions = Math.min(
             expandableCells.length,
-            Math.floor(Math.log2(effectiveResources / EXPANSION_COST) * 1.5) // 增加扩张能力
+            Math.floor(Math.log2(effectiveResources / EXPANSION_COST) * 2) // 扩张状态下增加扩张能力
         );
         
-        // Only expand if it's affordable and there are cells to expand to
         if (maxExpansions > 0) {
-            // Sort expandable cells by a combination of factors:
-            // 1. High value cells first
-            // 2. Cells that improve territory connectivity
-            // 3. Cells that are adjacent to more owned cells
+            // 优先扩张到高价值点和能提高领地连通性的格子
             expandableCells.sort((a, b) => {
-                // First priority: high value cells
                 if (a.highValue && !b.highValue) return -1;
                 if (!a.highValue && b.highValue) return 1;
                 
-                // Second priority: cells that improve connectivity
                 const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
                 const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
                 
                 return bConnectivity - aConnectivity;
             });
             
-            // Expand to multiple cells if possible
-            const numExpansions = Math.min(4, Math.floor(Math.random() * maxExpansions) + 2); // 增加每回合扩张的数量
+            // 扩张到多个格子
+            const numExpansions = Math.min(5, Math.floor(Math.random() * maxExpansions) + 3); // 扩张状态下增加每回合扩张数量
             let expansionCost = 0;
             
             for (let i = 0; i < numExpansions && i < expandableCells.length; i++) {
                 const cell = expandableCells[i];
-                // Calculate cost for this expansion (2^i)
                 const thisCost = Math.pow(2, i);
                 
-                // Check if we can afford this expansion
                 if (effectiveResources >= thisCost + expansionCost) {
                     expandToCell(tribe.id, cell.x, cell.y);
                     expansionCost += thisCost;
@@ -983,75 +1132,188 @@ function aiTurn(tribe) {
                     break;
                 }
             }
+            
+            addLogEntry(`扩张状态：积极扩张领地`, tribe.id);
+            return;
         }
     }
-    // Fourth priority: Create a mech if we have a strong economy and enough territory
-    else if (shouldCreateMech) {
-        createMech(tribe.id);
+    
+    // 如果无法扩张，尝试升级高价值点
+    if (upgradableCells.length > 0) {
+        upgradableCells.sort((a, b) => a.level - b.level);
+        
+        const cellToUpgrade = upgradableCells[0];
+        const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
+        
+        if (effectiveResources >= upgradeCost) {
+            upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
+            return;
+        }
     }
-    // Last priority: Create a mech if we have excess resources and territory
-    else if (tribe.resources >= MECH_COST * 2 && tribe.territory >= 30 && incomeExpenseRatio >= 2.5) {
+    
+    // 如果资源充足，考虑制造高达
+    if (tribe.resources >= MECH_COST * 1.5 && 
+        tribe.territory >= 25 && 
+        mechCount < Math.floor(tribe.territory / 30)) {
         createMech(tribe.id);
     }
 }
 
-// Calculate how compact a tribe's territory is
-function calculateTerritoryCompactness(tribeId) {
-    let ownedCells = [];
+// 处理经济状态
+function handleEconomicState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+    // 经济状态下，优先发展经济
     
-    // Find all cells owned by this tribe
-    for (let y = 0; y < BOARD_SIZE; y++) {
-        for (let x = 0; x < BOARD_SIZE; x++) {
-            if (gameBoard[y][x].owner === tribeId) {
-                ownedCells.push({ x, y });
+    // 首先尝试升级现有高价值点
+    if (upgradableCells.length > 0) {
+        // 优先升级低等级的高价值点以获得更好的投资回报
+        upgradableCells.sort((a, b) => a.level - b.level);
+        
+        const cellToUpgrade = upgradableCells[0];
+        const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
+        
+        if (effectiveResources >= upgradeCost) {
+            upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
+            addLogEntry(`经济状态：升级高价值点提高收入`, tribe.id);
+            return;
+        }
+    }
+    
+    // 然后尝试扩张到高价值点
+    if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        reachableHighValueCells.sort((a, b) => {
+            const aDistance = getMinDistanceToOwnedCells(a.x, a.y, tribe.id);
+            const bDistance = getMinDistanceToOwnedCells(b.x, b.y, tribe.id);
+            return aDistance - bDistance;
+        });
+        
+        expandToCell(tribe.id, reachableHighValueCells[0].x, reachableHighValueCells[0].y);
+        addLogEntry(`经济状态：扩张到高价值点增加收入`, tribe.id);
+        return;
+    }
+    
+    // 如果无法扩张到高价值点，尝试普通扩张但数量有限
+    if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        // 经济状态下限制扩张数量
+        const maxExpansions = Math.min(
+            expandableCells.length,
+            Math.floor(Math.log2(effectiveResources / EXPANSION_COST))
+        );
+        
+        if (maxExpansions > 0) {
+            // 优先扩张到高价值点
+            expandableCells.sort((a, b) => {
+                if (a.highValue && !b.highValue) return -1;
+                if (!a.highValue && b.highValue) return 1;
+                
+                const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
+                const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
+                
+                return bConnectivity - aConnectivity;
+            });
+            
+            // 限制扩张数量，经济状态下更保守
+            const numExpansions = Math.min(2, Math.floor(Math.random() * maxExpansions) + 1);
+            let expansionCost = 0;
+            
+            for (let i = 0; i < numExpansions && i < expandableCells.length; i++) {
+                const cell = expandableCells[i];
+                const thisCost = Math.pow(2, i);
+                
+                if (effectiveResources >= thisCost + expansionCost) {
+                    expandToCell(tribe.id, cell.x, cell.y);
+                    expansionCost += thisCost;
+                } else {
+                    break;
+                }
             }
+            
+            return;
         }
     }
     
-    if (ownedCells.length <= 1) {
-        return 1; // Maximum compactness for a single cell
+    // 经济状态下一般不考虑制造高达，除非资源非常充足
+    if (tribe.resources >= MECH_COST * 2.5 && 
+        tribe.territory >= 30 && 
+        incomeExpenseRatio >= 4.0 &&
+        mechCount < Math.floor(tribe.territory / 40)) {
+        createMech(tribe.id);
+        addLogEntry(`经济状态：资源充足，制造高达`, tribe.id);
     }
-    
-    // Calculate center of mass
-    let centerX = 0;
-    let centerY = 0;
-    
-    ownedCells.forEach(cell => {
-        centerX += cell.x;
-        centerY += cell.y;
-    });
-    
-    centerX /= ownedCells.length;
-    centerY /= ownedCells.length;
-    
-    // Calculate average distance from center of mass
-    let totalDistance = 0;
-    
-    ownedCells.forEach(cell => {
-        const distance = Math.sqrt(Math.pow(cell.x - centerX, 2) + Math.pow(cell.y - centerY, 2));
-        totalDistance += distance;
-    });
-    
-    const avgDistance = totalDistance / ownedCells.length;
-    
-    // Normalize compactness: smaller average distance means more compact territory
-    // Use a simple inverse relationship with a cap
-    return Math.min(1, Math.sqrt(ownedCells.length) / (avgDistance + 1));
 }
 
-// Count how many adjacent cells are owned by the same tribe
-function countAdjacentOwnedCells(x, y, tribeId) {
-    const neighbors = getNeighbors(x, y);
-    let count = 0;
+// 处理平衡状态
+function handleBalancedState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+    // 平衡状态下，均衡发展
     
-    neighbors.forEach(n => {
-        const cell = gameBoard[n.y][n.x];
-        if (cell.owner === tribeId) {
-            count++;
+    // 首先考虑升级高价值点
+    if (upgradableCells.length > 0) {
+        upgradableCells.sort((a, b) => a.level - b.level);
+        
+        const cellToUpgrade = upgradableCells[0];
+        const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
+        
+        if (effectiveResources >= upgradeCost) {
+            upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
+            return;
         }
-    });
+    }
     
-    return count;
+    // 然后考虑扩张到高价值点
+    if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST * 1.5) {
+        reachableHighValueCells.sort((a, b) => {
+            const aDistance = getMinDistanceToOwnedCells(a.x, a.y, tribe.id);
+            const bDistance = getMinDistanceToOwnedCells(b.x, b.y, tribe.id);
+            return aDistance - bDistance;
+        });
+        
+        expandToCell(tribe.id, reachableHighValueCells[0].x, reachableHighValueCells[0].y);
+        return;
+    }
+    
+    // 考虑普通扩张
+    if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        const maxExpansions = Math.min(
+            expandableCells.length,
+            Math.floor(Math.log2(effectiveResources / EXPANSION_COST) * 1.5)
+        );
+        
+        if (maxExpansions > 0) {
+            expandableCells.sort((a, b) => {
+                if (a.highValue && !b.highValue) return -1;
+                if (!a.highValue && b.highValue) return 1;
+                
+                const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
+                const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
+                
+                return bConnectivity - aConnectivity;
+            });
+            
+            const numExpansions = Math.min(3, Math.floor(Math.random() * maxExpansions) + 2);
+            let expansionCost = 0;
+            
+            for (let i = 0; i < numExpansions && i < expandableCells.length; i++) {
+                const cell = expandableCells[i];
+                const thisCost = Math.pow(2, i);
+                
+                if (effectiveResources >= thisCost + expansionCost) {
+                    expandToCell(tribe.id, cell.x, cell.y);
+                    expansionCost += thisCost;
+                } else {
+                    break;
+                }
+            }
+            
+            return;
+        }
+    }
+    
+    // 最后考虑制造高达
+    if (tribe.resources >= MECH_COST * 1.5 && 
+        tribe.territory >= 25 && 
+        incomeExpenseRatio >= 3.0 &&
+        mechCount < Math.floor(tribe.territory / 25)) {
+        createMech(tribe.id);
+    }
 }
 
 // Move and control all mechs
