@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>部落扩张游戏</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="game-controls">
+            <button id="start-btn">开始游戏</button>
+            <button id="pause-btn" disabled>暂停游戏</button>
+            <button id="continue-btn" disabled>继续游戏</button>
+            <button id="reset-btn">重置游戏</button>
+            <div class="game-info">
+                <span>回合: <span id="turn-counter">0</span></span>
+                <span>游戏速度: </span>
+                <input type="range" id="game-speed" min="1" max="10" value="5">
+            </div>
+        </div>
+        
+        <!-- 部落数据横条 -->
+        <div class="tribe-stats-bar">
+            <div class="tribe tribe-0">
+                <h4>部落1 (红)</h4>
+                <p>地盘: <span id="territory-0">1</span></p>
+                <p>资源: <span id="resources-0">10</span></p>
+                <p>高达: <span id="mechs-0">0</span></p>
+                <p>收入: <span id="income-0">1</span>/秒</p>
+                <p>消耗: <span id="expenses-0">0</span>/秒</p>
+            </div>
+            <div class="tribe tribe-1">
+                <h4>部落2 (蓝)</h4>
+                <p>地盘: <span id="territory-1">1</span></p>
+                <p>资源: <span id="resources-1">10</span></p>
+                <p>高达: <span id="mechs-1">0</span></p>
+                <p>收入: <span id="income-1">1</span>/秒</p>
+                <p>消耗: <span id="expenses-1">0</span>/秒</p>
+            </div>
+            <div class="tribe tribe-2">
+                <h4>部落3 (绿)</h4>
+                <p>地盘: <span id="territory-2">1</span></p>
+                <p>资源: <span id="resources-2">10</span></p>
+                <p>高达: <span id="mechs-2">0</span></p>
+                <p>收入: <span id="income-2">1</span>/秒</p>
+                <p>消耗: <span id="expenses-2">0</span>/秒</p>
+            </div>
+            <div class="tribe tribe-3">
+                <h4>部落4 (紫)</h4>
+                <p>地盘: <span id="territory-3">1</span></p>
+                <p>资源: <span id="resources-3">10</span></p>
+                <p>高达: <span id="mechs-3">0</span></p>
+                <p>收入: <span id="income-3">1</span>/秒</p>
+                <p>消耗: <span id="expenses-3">0</span>/秒</p>
+            </div>
+        </div>
+        
+        <div class="game-area">
+            <div class="game-board" id="game-board"></div>
+            
+            <div class="charts-panel">
+                <div id="territory-chart" class="chart"></div>
+                <div id="resources-chart" class="chart"></div>
+                <div id="mechs-chart" class="chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-log" class="game-log">
+        <h3>游戏日志</h3>
+        <div id="log-content"></div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html> 
