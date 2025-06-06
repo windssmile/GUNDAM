@@ -848,34 +848,35 @@ function aiTurn(tribe) {
         mechCount,
         enemyMechCount,
         tribeRanking,
-        recentlyLostMech
+        recentlyLostMech,
+        ownedHighValueCellCount: ownedHighValueCells.length
     });
     
     // 根据部落状态调整策略
     switch(tribeState) {
         case 'EMERGENCY':
             // 紧急状态：优先防御，制造高达，保护领地
-            handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells);
+            handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, ownedHighValueCells);
             break;
             
         case 'DEFENSIVE':
             // 防御状态：平衡发展和防御
-            handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells);
             break;
             
         case 'EXPANSION':
             // 扩张状态：优先扩张领地
-            handleExpansionState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            handleExpansionState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells);
             break;
             
         case 'ECONOMIC':
             // 经济状态：优先发展经济
-            handleEconomicState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            handleEconomicState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells);
             break;
             
         default:
             // 平衡状态：均衡发展
-            handleBalancedState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells);
+            handleBalancedState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells);
     }
 }
 
@@ -948,7 +949,8 @@ function determineTribeState(tribeId, metrics) {
         mechCount,
         enemyMechCount,
         tribeRanking,
-        recentlyLostMech
+        recentlyLostMech,
+        ownedHighValueCellCount
     } = metrics;
     
     // 紧急状态条件
@@ -983,7 +985,7 @@ function determineTribeState(tribeId, metrics) {
     if (
         (resourceGrowthRate < 0) || // 资源增长为负
         (incomeExpenseRatio < 2) || // 收入/支出比低
-        (ownedHighValueCells.length < 3) // 高价值点太少
+        (ownedHighValueCellCount < 3) // 高价值点太少
     ) {
         return 'ECONOMIC';
     }
@@ -993,7 +995,7 @@ function determineTribeState(tribeId, metrics) {
 }
 
 // 处理紧急状态
-function handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells) {
+function handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, ownedHighValueCells) {
     // 紧急状态下，优先制造高达进行防御
     if (tribe.resources >= MECH_COST && tribe.territory >= 15) {
         createMech(tribe.id);
@@ -1031,7 +1033,7 @@ function handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCe
 }
 
 // 处理防御状态
-function handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+function handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells) {
     // 防御状态下，平衡发展经济和防御能力
     
     // 如果高达数量不足，考虑制造高达
@@ -1081,7 +1083,7 @@ function handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCe
 }
 
 // 处理扩张状态
-function handleExpansionState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+function handleExpansionState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells) {
     // 扩张状态下，优先扩张领地
     
     // 首先尝试扩张到高价值点
@@ -1160,7 +1162,7 @@ function handleExpansionState(tribe, effectiveResources, mechCount, upgradableCe
 }
 
 // 处理经济状态
-function handleEconomicState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+function handleEconomicState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells) {
     // 经济状态下，优先发展经济
     
     // 首先尝试升级现有高价值点
@@ -1242,7 +1244,7 @@ function handleEconomicState(tribe, effectiveResources, mechCount, upgradableCel
 }
 
 // 处理平衡状态
-function handleBalancedState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells) {
+function handleBalancedState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells) {
     // 平衡状态下，均衡发展
     
     // 首先考虑升级高价值点
