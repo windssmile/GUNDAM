@@ -9,7 +9,7 @@ const MECH_MAINTENANCE = 3;
 const MECH_INITIAL_HEALTH = 100;
 const MECH_MOVEMENT_RADIUS = 5;
 const MECH_ATTACK_COST = 3;
-const MECH_SALVAGE_VALUE = 0;
+const MECH_SALVAGE_VALUE = 40; // 增加回收价值，使回收更有价值
 const MAX_UPGRADE_LEVEL = 2;
 
 // Game State
@@ -144,30 +144,74 @@ function createGameBoard() {
 
 // Render the game board
 function renderBoard() {
-    gameBoardElement.innerHTML = '';
-    
-    for (let y = 0; y < BOARD_SIZE; y++) {
-        for (let x = 0; x < BOARD_SIZE; x++) {
-            const cell = gameBoard[y][x];
-            const cellElement = document.createElement('div');
-            cellElement.className = 'cell';
-            
-            if (cell.highValue) {
-                cellElement.classList.add('high-value');
-            }
-            
-            if (cell.owner !== null) {
-                cellElement.classList.add(`tribe-${cell.owner}`);
+    // 每10回合才完全重绘棋盘，其他回合只更新变化的部分
+    if (turnCounter % 10 === 0 || turnCounter === 1) {
+        // 完全重绘
+        gameBoardElement.innerHTML = '';
+        
+        for (let y = 0; y < BOARD_SIZE; y++) {
+            for (let x = 0; x < BOARD_SIZE; x++) {
+                const cell = gameBoard[y][x];
+                const cellElement = document.createElement('div');
+                cellElement.className = 'cell';
+                cellElement.dataset.x = x;
+                cellElement.dataset.y = y;
                 
+                if (cell.highValue) {
+                    cellElement.classList.add('high-value');
+                }
+                
+                if (cell.owner !== null) {
+                    cellElement.classList.add(`tribe-${cell.owner}`);
+                    
+                    if (cell.level > 1) {
+                        const levelElement = document.createElement('span');
+                        levelElement.className = 'level';
+                        levelElement.textContent = cell.level;
+                        cellElement.appendChild(levelElement);
+                    }
+                }
+                
+                gameBoardElement.appendChild(cellElement);
+            }
+        }
+    } else {
+        // 只更新变化的部分
+        // 获取所有单元格元素
+        const cellElements = gameBoardElement.querySelectorAll('.cell');
+        
+        for (let y = 0; y < BOARD_SIZE; y++) {
+            for (let x = 0; x < BOARD_SIZE; x++) {
+                const cell = gameBoard[y][x];
+                const index = y * BOARD_SIZE + x;
+                const cellElement = cellElements[index];
+                
+                // 确保元素存在
+                if (!cellElement) continue;
+                
+                // 更新所有者
+                for (let i = 0; i < 4; i++) {
+                    cellElement.classList.remove(`tribe-${i}`);
+                }
+                if (cell.owner !== null) {
+                    cellElement.classList.add(`tribe-${cell.owner}`);
+                }
+                
+                // 更新等级
+                const levelElement = cellElement.querySelector('.level');
                 if (cell.level > 1) {
-                    const levelElement = document.createElement('span');
-                    levelElement.className = 'level';
-                    levelElement.textContent = cell.level;
-                    cellElement.appendChild(levelElement);
+                    if (levelElement) {
+                        levelElement.textContent = cell.level;
+                    } else {
+                        const newLevelElement = document.createElement('span');
+                        newLevelElement.className = 'level';
+                        newLevelElement.textContent = cell.level;
+                        cellElement.appendChild(newLevelElement);
+                    }
+                } else if (levelElement) {
+                    cellElement.removeChild(levelElement);
                 }
             }
-            
-            gameBoardElement.appendChild(cellElement);
         }
     }
     
@@ -177,24 +221,54 @@ function renderBoard() {
 
 // Render all mechs
 function renderMechs() {
-    // Remove existing mech elements
+    // 移除现有高达元素
     const existingMechs = document.querySelectorAll('.mech');
     existingMechs.forEach(mech => mech.remove());
     
-    // Get cell size for positioning
-    const cellWidth = gameBoardElement.clientWidth / BOARD_SIZE;
-    const cellHeight = gameBoardElement.clientHeight / BOARD_SIZE;
-    const mechSize = 16; // 高达元素的尺寸
-    
-    // Render mechs
-    mechs.forEach(mech => {
-        const mechElement = document.createElement('div');
-        mechElement.className = `mech tribe-${mech.owner}`;
-        mechElement.textContent = mech.health;
-        mechElement.style.left = `${mech.x * cellWidth + cellWidth/2 - mechSize/2}px`;
-        mechElement.style.top = `${mech.y * cellHeight + cellHeight/2 - mechSize/2}px`;
-        gameBoardElement.appendChild(mechElement);
-    });
+    // 如果高达数量超过一定阈值，使用更高效的渲染方式
+    if (mechs.length > 50) {
+        // 创建文档片段，一次性添加所有高达元素
+        const fragment = document.createDocumentFragment();
+        const cellWidth = gameBoardElement.clientWidth / BOARD_SIZE;
+        const cellHeight = gameBoardElement.clientHeight / BOARD_SIZE;
+        const mechSize = 16; // 高达元素的尺寸
+        
+        // 按部落分组高达，减少DOM操作
+        const mechsByTribe = [[], [], [], []];
+        mechs.forEach(mech => {
+            mechsByTribe[mech.owner].push(mech);
+        });
+        
+        // 为每个部落创建高达元素
+        for (let tribeId = 0; tribeId < 4; tribeId++) {
+            const tribeMechs = mechsByTribe[tribeId];
+            
+            tribeMechs.forEach(mech => {
+                const mechElement = document.createElement('div');
+                mechElement.className = `mech tribe-${mech.owner}`;
+                mechElement.textContent = mech.health;
+                mechElement.style.left = `${mech.x * cellWidth + cellWidth/2 - mechSize/2}px`;
+                mechElement.style.top = `${mech.y * cellHeight + cellHeight/2 - mechSize/2}px`;
+                fragment.appendChild(mechElement);
+            });
+        }
+        
+        gameBoardElement.appendChild(fragment);
+    } else {
+        // 高达数量较少时使用原来的方式
+        const cellWidth = gameBoardElement.clientWidth / BOARD_SIZE;
+        const cellHeight = gameBoardElement.clientHeight / BOARD_SIZE;
+        const mechSize = 16;
+        
+        mechs.forEach(mech => {
+            const mechElement = document.createElement('div');
+            mechElement.className = `mech tribe-${mech.owner}`;
+            mechElement.textContent = mech.health;
+            mechElement.style.left = `${mech.x * cellWidth + cellWidth/2 - mechSize/2}px`;
+            mechElement.style.top = `${mech.y * cellHeight + cellHeight/2 - mechSize/2}px`;
+            gameBoardElement.appendChild(mechElement);
+        });
+    }
 }
 
 // Initialize charts using ECharts
@@ -231,10 +305,10 @@ function initCharts() {
             }
         },
         grid: {
-            left: '3%',
-            right: '4%',
-            bottom: '3%',
-            top: 60,
+            left: '5%',
+            right: '5%',
+            bottom: '10%',
+            top: 70,
             containLabel: true
         },
         xAxis: {
@@ -270,6 +344,17 @@ function initCharts() {
             }
         }
     };
+
+    // 先销毁已存在的图表实例
+    if (territoryChart) {
+        territoryChart.dispose();
+    }
+    if (resourcesChart) {
+        resourcesChart.dispose();
+    }
+    if (mechsChart) {
+        mechsChart.dispose();
+    }
 
     // Territory chart
     territoryChart = echarts.init(document.getElementById('territory-chart'));
@@ -505,7 +590,20 @@ function updateUI() {
 
 // Update chart data and redraw
 function updateCharts() {
-    if (turnCounter % 5 === 0) { // Update charts every 5 turns to improve performance
+    // 减少图表更新频率，从每5回合更新一次改为每20回合更新一次
+    if (turnCounter % 20 === 0) {
+        // 限制历史数据长度，避免数据过多导致性能问题
+        const maxHistoryLength = 100; // 最多保存100个数据点
+        
+        // 如果历史数据超过限制，移除最早的数据
+        if (historyData.territory[0].length >= maxHistoryLength) {
+            tribes.forEach(tribe => {
+                historyData.territory[tribe.id].shift();
+                historyData.resources[tribe.id].shift();
+                historyData.mechs[tribe.id].shift();
+            });
+        }
+        
         // Record history
         tribes.forEach(tribe => {
             historyData.territory[tribe.id].push(tribe.territory);
@@ -514,100 +612,136 @@ function updateCharts() {
         });
         
         // Generate x-axis data (turn numbers)
-        const xAxisData = Array.from({ length: historyData.territory[0].length }, (_, i) => i * 5);
+        // 使用当前回合数减去历史数据长度*20来计算起始回合
+        const startTurn = turnCounter - (historyData.territory[0].length - 1) * 20;
+        const xAxisData = Array.from({ length: historyData.territory[0].length }, (_, i) => startTurn + i * 20);
         
-        // Update territory chart
-        territoryChart.setOption({
-            xAxis: { data: xAxisData },
-            series: [
-                { 
-                    data: historyData.territory[0], 
-                    color: '#ff5252',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.territory[1], 
-                    color: '#2196f3',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.territory[2], 
-                    color: '#4caf50',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.territory[3], 
-                    color: '#9c27b0',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                }
-            ]
-        });
-        
-        // Update resources chart
-        resourcesChart.setOption({
-            xAxis: { data: xAxisData },
-            series: [
-                { 
-                    data: historyData.resources[0], 
-                    color: '#ff5252',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.resources[1], 
-                    color: '#2196f3',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.resources[2], 
-                    color: '#4caf50',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.resources[3], 
-                    color: '#9c27b0',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                }
-            ]
-        });
-        
-        // Update mechs chart
-        mechsChart.setOption({
-            xAxis: { data: xAxisData },
-            series: [
-                { 
-                    data: historyData.mechs[0], 
-                    color: '#ff5252',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.mechs[1], 
-                    color: '#2196f3',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.mechs[2], 
-                    color: '#4caf50',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                },
-                { 
-                    data: historyData.mechs[3], 
-                    color: '#9c27b0',
-                    lineStyle: { width: 3 },
-                    symbolSize: 7
-                }
-            ]
-        });
+        try {
+            // Update territory chart
+            territoryChart.setOption({
+                xAxis: { data: xAxisData },
+                series: [
+                    { 
+                        name: '部落1', 
+                        type: 'line',
+                        data: historyData.territory[0],
+                        color: '#ff5252',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落2', 
+                        type: 'line',
+                        data: historyData.territory[1],
+                        color: '#2196f3',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落3', 
+                        type: 'line',
+                        data: historyData.territory[2],
+                        color: '#4caf50',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落4', 
+                        type: 'line',
+                        data: historyData.territory[3],
+                        color: '#9c27b0',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    }
+                ]
+            });
+            
+            // Update resources chart
+            resourcesChart.setOption({
+                xAxis: { data: xAxisData },
+                series: [
+                    { 
+                        name: '部落1', 
+                        type: 'line',
+                        data: historyData.resources[0],
+                        color: '#ff5252',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落2', 
+                        type: 'line',
+                        data: historyData.resources[1],
+                        color: '#2196f3',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落3', 
+                        type: 'line',
+                        data: historyData.resources[2],
+                        color: '#4caf50',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落4', 
+                        type: 'line',
+                        data: historyData.resources[3],
+                        color: '#9c27b0',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    }
+                ]
+            });
+            
+            // Update mechs chart
+            mechsChart.setOption({
+                xAxis: { data: xAxisData },
+                series: [
+                    { 
+                        name: '部落1', 
+                        type: 'line',
+                        data: historyData.mechs[0],
+                        color: '#ff5252',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落2', 
+                        type: 'line',
+                        data: historyData.mechs[1],
+                        color: '#2196f3',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落3', 
+                        type: 'line',
+                        data: historyData.mechs[2],
+                        color: '#4caf50',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    },
+                    { 
+                        name: '部落4', 
+                        type: 'line',
+                        data: historyData.mechs[3],
+                        color: '#9c27b0',
+                        lineStyle: { width: 3 },
+                        symbolSize: 7
+                    }
+                ]
+            });
+        } catch (error) {
+            console.error("图表更新错误:", error);
+            // 尝试重新初始化图表
+            try {
+                initCharts();
+            } catch (e) {
+                console.error("图表重新初始化失败:", e);
+            }
+        }
     }
 }
 
@@ -624,6 +758,13 @@ function addLogEntry(message, tribeId) {
     }
     
     logContent.appendChild(logEntry);
+    
+    // 限制日志条目数量，保留最新的200条
+    const maxLogEntries = 200;
+    while (logContent.childElementCount > maxLogEntries) {
+        logContent.removeChild(logContent.firstChild);
+    }
+    
     logContent.scrollTop = logContent.scrollHeight;
 }
 
@@ -718,8 +859,12 @@ function gameTick() {
     // Update UI
     updateUI();
     
-    // Render board
-    renderBoard();
+    // 减少渲染频率，提高性能
+    // 每回合更新UI数据，但只在特定回合渲染棋盘
+    if (turnCounter % 3 === 0 || turnCounter < 20) {
+        // 渲染棋盘
+        renderBoard();
+    }
 }
 
 // Generate resources from high value cells
@@ -744,9 +889,13 @@ function generateResources() {
     
     // Subtract mech maintenance costs
     tribes.forEach(tribe => {
+        tribe.expenses = mechs.filter(m => m.owner === tribe.id).length * MECH_MAINTENANCE;
         tribe.resources -= tribe.expenses;
         
-        // If tribe runs out of resources, destroy mechs until maintenance costs can be covered
+        // 检查经济状况，主动回收高达以避免破产
+        checkAndRecycleMechs(tribe.id);
+        
+        // If tribe still runs out of resources, destroy mechs until maintenance costs can be covered
         if (tribe.resources < 0) {
             const tribeMechs = mechs.filter(m => m.owner === tribe.id);
             while (tribe.resources < 0 && tribeMechs.length > 0) {
@@ -769,91 +918,135 @@ function generateResources() {
 
 // AI turn for a tribe
 function aiTurn(tribe) {
+    // 如果领地为0，跳过AI回合
+    if (tribe.territory === 0) {
+        return;
+    }
+    
     // Calculate available resources
     const availableResources = tribe.resources;
     const mechMaintenance = mechs.filter(m => m.owner === tribe.id).length * MECH_MAINTENANCE;
     const effectiveResources = availableResources - mechMaintenance;
     
-    // Count owned high value cells that are not fully upgraded
+    // 如果有效资源为负数，跳过AI回合
+    if (effectiveResources < 0) {
+        return;
+    }
+    
+    // 缓存高价值点和可扩张点
     const ownedHighValueCells = [];
     const upgradableCells = [];
     const expandableCells = [];
     
+    // 减少遍历次数，只检查部落领地周围的格子
+    const cellsToCheck = new Set();
+    
+    // 首先找到所有己方领地
+    const ownedCells = [];
     for (let y = 0; y < BOARD_SIZE; y++) {
         for (let x = 0; x < BOARD_SIZE; x++) {
             const cell = gameBoard[y][x];
-            
-            // Count owned high value cells
-            if (cell.owner === tribe.id && cell.highValue) {
-                ownedHighValueCells.push(cell);
+            if (cell.owner === tribe.id) {
+                ownedCells.push({x, y});
                 
-                // Check if cell can be upgraded
-                if (cell.level < MAX_UPGRADE_LEVEL) {
-                    upgradableCells.push(cell);
+                // 对于己方高价值点，检查是否可升级
+                if (cell.highValue) {
+                    ownedHighValueCells.push(cell);
+                    if (cell.level < MAX_UPGRADE_LEVEL) {
+                        upgradableCells.push(cell);
+                    }
                 }
-            }
-            
-            // Check expandable cells (only 4-adjacent cells that are not owned by this tribe)
-            if (cell.owner !== tribe.id) {
-                // Check if this cell is adjacent to any owned cell
-                const neighbors = getNeighbors(x, y);
-                const canExpand = neighbors.some(n => {
-                    const neighborCell = gameBoard[n.y][n.x];
-                    return neighborCell.owner === tribe.id;
+                
+                // 将周围的格子加入待检查集合
+                getNeighbors(x, y).forEach(n => {
+                    cellsToCheck.add(`${n.x},${n.y}`);
                 });
-                
-                if (canExpand) {
-                    expandableCells.push(cell);
-                }
             }
         }
     }
     
+    // 检查可扩张的格子
+    cellsToCheck.forEach(coordStr => {
+        const [x, y] = coordStr.split(',').map(Number);
+        const cell = gameBoard[y][x];
+        
+        // 如果不是己方领地，检查是否可扩张
+        if (cell.owner !== tribe.id) {
+            // 检查是否相邻己方领地
+            const neighbors = getNeighbors(x, y);
+            const canExpand = neighbors.some(n => {
+                const neighborCell = gameBoard[n.y][n.x];
+                return neighborCell.owner === tribe.id;
+            });
+            
+            if (canExpand) {
+                expandableCells.push(cell);
+            }
+        }
+    });
+    
     // Find high value cells that can be reached
     const reachableHighValueCells = expandableCells.filter(cell => cell.highValue);
     
-    // Calculate the compactness of the tribe's territory
-    const territoryCompactness = calculateTerritoryCompactness(tribe.id);
+    // 只在需要时计算复杂指标
+    let metrics = null;
     
-    // Calculate the current income/expense ratio
-    const incomeExpenseRatio = tribe.income / (tribe.expenses > 0 ? tribe.expenses : 1);
+    // 根据当前回合和资源情况决定是否进行完整的状态评估
+    // 回合数越大，评估频率越低，以提高性能
+    const shouldEvaluateState = turnCounter % Math.max(1, Math.min(10, Math.floor(turnCounter / 200))) === 0;
     
-    // Calculate the number of mechs this tribe has
+    if (shouldEvaluateState) {
+        // 计算部落排名（基于领地大小）
+        const tribeRanking = calculateTribeRanking(tribe.id);
+        
+        // 计算领地受到威胁的程度
+        const territoryUnderThreat = calculateTerritoryThreat(tribe.id);
+        
+        // 计算领地损失速度
+        const territoryLossRate = calculateTerritoryLossRate(tribe.id);
+        
+        // 计算资源增长率
+        const resourceGrowthRate = calculateResourceGrowthRate(tribe.id);
+        
+        // 计算收入/支出比
+        const incomeExpenseRatio = tribe.income / (tribe.expenses > 0 ? tribe.expenses : 1);
+        
+        // 计算高达数量
+        const mechCount = mechs.filter(m => m.owner === tribe.id).length;
+        
+        // 计算敌方高达数量
+        const enemyMechCount = mechs.filter(m => m.owner !== tribe.id).length;
+        
+        // 检查是否最近失去了高达
+        const recentlyLostMech = tribe.territory >= 30 && mechCount === 0;
+        
+        metrics = {
+            territoryUnderThreat,
+            territoryLossRate,
+            resourceGrowthRate,
+            incomeExpenseRatio,
+            mechCount,
+            enemyMechCount,
+            tribeRanking,
+            recentlyLostMech,
+            ownedHighValueCellCount: ownedHighValueCells.length
+        };
+        
+        // 判断部落当前状态
+        const tribeState = determineTribeState(tribe.id, metrics);
+        tribe.state = tribeState; // 存储状态以便复用
+    } else {
+        // 复用上一次的状态评估
+        if (!tribe.state) {
+            tribe.state = 'BALANCED'; // 默认平衡状态
+        }
+    }
+    
+    // 获取当前高达数量
     const mechCount = mechs.filter(m => m.owner === tribe.id).length;
     
-    // 检查是否最近失去了高达（通过比较领地大小和高达数量）
-    const recentlyLostMech = tribe.territory >= 30 && mechCount === 0;
-    
-    // 计算敌方高达的数量
-    const enemyMechCount = mechs.filter(m => m.owner !== tribe.id).length;
-    
-    // 计算领地受到威胁的程度
-    const territoryUnderThreat = calculateTerritoryThreat(tribe.id);
-    
-    // 计算领地损失速度（通过比较当前领地与历史记录）
-    const territoryLossRate = calculateTerritoryLossRate(tribe.id);
-    
-    // 计算资源增长率
-    const resourceGrowthRate = calculateResourceGrowthRate(tribe.id);
-    
-    // 计算部落排名（基于领地大小）
-    const tribeRanking = calculateTribeRanking(tribe.id);
-    
-    // 判断部落当前状态
-    const tribeState = determineTribeState(tribe.id, {
-        territoryUnderThreat,
-        territoryLossRate,
-        resourceGrowthRate,
-        incomeExpenseRatio,
-        mechCount,
-        enemyMechCount,
-        tribeRanking,
-        recentlyLostMech,
-        ownedHighValueCellCount: ownedHighValueCells.length
-    });
-    
     // 根据部落状态调整策略
-    switch(tribeState) {
+    switch(tribe.state) {
         case 'EMERGENCY':
             // 紧急状态：优先防御，制造高达，保护领地
             handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, ownedHighValueCells);
@@ -862,6 +1055,11 @@ function aiTurn(tribe) {
         case 'DEFENSIVE':
             // 防御状态：平衡发展和防御
             handleDefensiveState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells);
+            break;
+            
+        case 'ECONOMIC_GROWTH':
+            // 经济优先扩张状态：平衡经济发展和领土扩张，优先考虑资源积累
+            handleEconomicGrowthState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells);
             break;
             
         case 'EXPANSION':
@@ -973,6 +1171,15 @@ function determineTribeState(tribeId, metrics) {
         return 'DEFENSIVE';
     }
     
+    // 经济优先扩张状态条件
+    if (
+        (tribeRanking <= 2) || // 排名前两名
+        (incomeExpenseRatio > 2.5 && resourceGrowthRate > 0) || // 经济状况良好且资源增长为正
+        (tribes[tribeId].territory >= 30 && ownedHighValueCellCount >= 3) // 领地规模适中且拥有多个高价值点
+    ) {
+        return 'ECONOMIC_GROWTH';
+    }
+    
     // 扩张状态条件
     if (
         (tribeRanking > 2 && resourceGrowthRate > 0) || // 排名不是前两名但资源增长良好
@@ -996,6 +1203,25 @@ function determineTribeState(tribeId, metrics) {
 
 // 处理紧急状态
 function handleEmergencyState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, ownedHighValueCells) {
+    // 紧急状态下，先检查是否需要回收高达来获取资源
+    if (tribe.resources < EXPANSION_COST && mechCount > 1) {
+        // 回收一个高达以获取资源
+        const tribeMechs = mechs.filter(m => m.owner === tribe.id);
+        if (tribeMechs.length > 0) {
+            // 选择生命值最低的高达回收
+            tribeMechs.sort((a, b) => a.health - b.health);
+            const mechToRecycle = tribeMechs[0];
+            const mechIndex = mechs.indexOf(mechToRecycle);
+            
+            if (mechIndex !== -1) {
+                mechs.splice(mechIndex, 1);
+                tribe.resources += MECH_SALVAGE_VALUE;
+                addLogEntry(`紧急状态：主动回收生命值为 ${mechToRecycle.health} 的高达，获得 ${MECH_SALVAGE_VALUE} 资源`, tribe.id);
+                return;
+            }
+        }
+    }
+    
     // 紧急状态下，优先制造高达进行防御
     if (tribe.resources >= MECH_COST && tribe.territory >= 15) {
         createMech(tribe.id);
@@ -1320,65 +1546,125 @@ function handleBalancedState(tribe, effectiveResources, mechCount, upgradableCel
 
 // Move and control all mechs
 function moveMechs() {
-    mechs.forEach(mech => {
-        // Skip if this mech has already moved this turn
-        if (mech.hasMoved) {
-            mech.hasMoved = false;
-            return;
+    // 如果高达数量很多，使用批处理方式
+    if (mechs.length > 50) {
+        // 每回合只移动一部分高达，避免性能问题
+        const mechsToMove = Math.min(mechs.length, 20 + Math.floor(Math.random() * 10));
+        const mechIndices = Array.from({ length: mechs.length }, (_, i) => i);
+        
+        // 随机选择要移动的高达
+        for (let i = 0; i < mechIndices.length; i++) {
+            const j = Math.floor(Math.random() * mechIndices.length);
+            [mechIndices[i], mechIndices[j]] = [mechIndices[j], mechIndices[i]];
         }
         
-        // AI for mech movement
-        aiMoveMech(mech);
-    });
+        // 只移动选中的高达
+        for (let i = 0; i < mechsToMove; i++) {
+            const mech = mechs[mechIndices[i]];
+            
+            // Skip if this mech has already moved this turn
+            if (mech.hasMoved) {
+                mech.hasMoved = false;
+                continue;
+            }
+            
+            // AI for mech movement
+            aiMoveMech(mech);
+        }
+        
+        // 重置其余高达的hasMoved标志
+        for (let i = mechsToMove; i < mechs.length; i++) {
+            mechs[mechIndices[i]].hasMoved = false;
+        }
+    } else {
+        // 高达数量少时正常移动所有高达
+        mechs.forEach(mech => {
+            // Skip if this mech has already moved this turn
+            if (mech.hasMoved) {
+                mech.hasMoved = false;
+                return;
+            }
+            
+            // AI for mech movement
+            aiMoveMech(mech);
+        });
+    }
 }
 
 // AI for mech movement
 function aiMoveMech(mech) {
     const tribe = tribes[mech.owner];
     
+    // 如果部落已经没有领地，高达自毁
+    if (tribe.territory === 0) {
+        const mechIndex = mechs.indexOf(mech);
+        if (mechIndex !== -1) {
+            mechs.splice(mechIndex, 1);
+        }
+        return;
+    }
+    
+    // 缓存搜索范围内的格子，避免重复计算
+    const cellsInRange = new Map();
+    const enemyMechsInRange = [];
+    
+    // 计算搜索范围
+    const minX = Math.max(0, mech.x - MECH_MOVEMENT_RADIUS);
+    const maxX = Math.min(BOARD_SIZE - 1, mech.x + MECH_MOVEMENT_RADIUS);
+    const minY = Math.max(0, mech.y - MECH_MOVEMENT_RADIUS);
+    const maxY = Math.min(BOARD_SIZE - 1, mech.y + MECH_MOVEMENT_RADIUS);
+    
     // Find enemy cells within movement range that are adjacent to own territory
     const enemyCells = [];
-    for (let y = Math.max(0, mech.y - MECH_MOVEMENT_RADIUS); y <= Math.min(BOARD_SIZE - 1, mech.y + MECH_MOVEMENT_RADIUS); y++) {
-        for (let x = Math.max(0, mech.x - MECH_MOVEMENT_RADIUS); x <= Math.min(BOARD_SIZE - 1, mech.x + MECH_MOVEMENT_RADIUS); x++) {
-            const cell = gameBoard[y][x];
-            const distance = Math.sqrt(Math.pow(x - mech.x, 2) + Math.pow(y - mech.y, 2));
-            
-            if (cell.owner !== null && cell.owner !== mech.owner && distance <= MECH_MOVEMENT_RADIUS) {
-                // Check if the cell is adjacent to any cell owned by this tribe
-                const isAdjacentToOwnTerritory = getNeighbors(x, y).some(n => {
-                    const neighborCell = gameBoard[n.y][n.x];
-                    return neighborCell.owner === mech.owner;
-                });
-                
-                // Only add cells that are adjacent to own territory
-                if (isAdjacentToOwnTerritory) {
-                    // Calculate strategic value of this cell
-                    const strategicValue = calculateCellStrategicValue(x, y, cell, mech.owner);
-                    enemyCells.push({ x, y, cell, distance, strategicValue });
-                }
+    
+    // 预先计算所有己方领地的位置
+    const ownTerritories = new Set();
+    for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            if (gameBoard[y][x].owner === mech.owner) {
+                ownTerritories.add(`${x},${y}`);
             }
         }
     }
     
-    // Find enemy mechs within movement range
-    const enemyMechs = [];
-    for (let y = Math.max(0, mech.y - MECH_MOVEMENT_RADIUS); y <= Math.min(BOARD_SIZE - 1, mech.y + MECH_MOVEMENT_RADIUS); y++) {
-        for (let x = Math.max(0, mech.x - MECH_MOVEMENT_RADIUS); x <= Math.min(BOARD_SIZE - 1, mech.x + MECH_MOVEMENT_RADIUS); x++) {
+    // 在移动范围内搜索敌方格子和高达
+    for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            const cell = gameBoard[y][x];
             const distance = Math.sqrt(Math.pow(x - mech.x, 2) + Math.pow(y - mech.y, 2));
             
+            // 缓存范围内的格子
+            cellsInRange.set(`${x},${y}`, { cell, distance });
+            
             if (distance <= MECH_MOVEMENT_RADIUS) {
+                // 检查敌方格子
+                if (cell.owner !== null && cell.owner !== mech.owner) {
+                    // 检查是否相邻己方领地
+                    const neighbors = getNeighbors(x, y);
+                    const isAdjacentToOwnTerritory = neighbors.some(n => {
+                        return ownTerritories.has(`${n.x},${n.y}`);
+                    });
+                    
+                    // 只添加与己方领地相邻的敌方格子
+                    if (isAdjacentToOwnTerritory) {
+                        // 计算战略价值
+                        const strategicValue = calculateCellStrategicValue(x, y, cell, mech.owner);
+                        enemyCells.push({ x, y, cell, distance, strategicValue });
+                    }
+                }
+                
+                // 检查敌方高达
                 const enemyMechAtLocation = mechs.find(m => m.x === x && m.y === y && m.owner !== mech.owner);
                 if (enemyMechAtLocation) {
-                    // Check if we have a good chance of winning
+                    // 计算胜率
                     const winProbability = mech.health / (mech.health + enemyMechAtLocation.health);
                     
-                    // Only consider attacking if we have at least a 40% chance of winning
+                    // 只考虑胜率至少40%的目标
                     if (winProbability >= 0.4) {
-                        // Calculate strategic value of defeating this mech
-                        const cell = gameBoard[y][x];
+                        // 计算战略价值
                         const strategicValue = calculateMechTargetValue(enemyMechAtLocation, cell, winProbability);
                         
-                        enemyMechs.push({ 
+                        enemyMechsInRange.push({ 
                             x, 
                             y, 
                             mech: enemyMechAtLocation, 
@@ -1392,77 +1678,77 @@ function aiMoveMech(mech) {
         }
     }
     
-    // Decide whether to target a cell or an enemy mech
+    // 决定是攻击格子还是敌方高达
     let targetType = null;
     let target = null;
     
     if (enemyCells.length > 0) {
-        // Sort by strategic value (highest first)
+        // 按战略价值排序（最高在前）
         enemyCells.sort((a, b) => b.strategicValue - a.strategicValue);
         target = enemyCells[0];
         targetType = 'cell';
     }
     
-    if (enemyMechs.length > 0) {
-        // Sort by strategic value (highest first)
-        enemyMechs.sort((a, b) => b.strategicValue - a.strategicValue);
+    if (enemyMechsInRange.length > 0) {
+        // 按战略价值排序（最高在前）
+        enemyMechsInRange.sort((a, b) => b.strategicValue - a.strategicValue);
         
-        // If the best mech target is better than the best cell target, or there are no cell targets
-        if (!target || (enemyMechs[0].strategicValue > target.strategicValue)) {
-            target = enemyMechs[0];
+        // 如果最佳高达目标比最佳格子目标更有价值，或者没有格子目标
+        if (!target || (enemyMechsInRange[0].strategicValue > target.strategicValue)) {
+            target = enemyMechsInRange[0];
             targetType = 'mech';
         }
     }
     
-    // If we have a target, attack it
+    // 如果有目标，攻击它
     if (target) {
-        // Move mech
+        // 移动高达
         mech.x = target.x;
         mech.y = target.y;
         mech.hasMoved = true;
         
         if (targetType === 'mech') {
-            // Battle between mechs
+            // 高达间战斗
             const enemyMech = target.mech;
             const totalHealth = mech.health + enemyMech.health;
             const winProbability = mech.health / totalHealth;
             
             if (Math.random() < winProbability) {
-                // This mech wins
+                // 此高达获胜
                 const enemyTribe = tribes[enemyMech.owner];
                 
-                // Remove enemy mech
+                // 移除敌方高达
                 const enemyMechIndex = mechs.indexOf(enemyMech);
                 mechs.splice(enemyMechIndex, 1);
                 
-                // Capture the cell
+                // 占领格子
                 captureCell(mech.owner, target.x, target.y);
                 
-                // Add salvage value
+                // 添加回收价值
                 tribe.resources += MECH_SALVAGE_VALUE;
                 
                 addLogEntry(`高达击败了敌方高达并占领了 (${target.x},${target.y})`, mech.owner);
             } else {
-                // Enemy mech wins
+                // 敌方高达获胜
                 const enemyTribe = tribes[enemyMech.owner];
                 
-                // Remove this mech
+                // 移除此高达
                 const mechIndex = mechs.indexOf(mech);
                 mechs.splice(mechIndex, 1);
                 
-                // Add salvage value to enemy tribe
+                // 添加回收价值给敌方部落
                 enemyTribe.resources += MECH_SALVAGE_VALUE;
                 
                 addLogEntry(`高达在与敌方高达的战斗中被击毁`, mech.owner);
             }
         } else {
-            // No enemy mech, capture the cell
+            // 没有敌方高达，占领格子
             mech.health -= MECH_ATTACK_COST;
             captureCell(mech.owner, target.x, target.y);
             
             addLogEntry(`高达占领了 (${target.x},${target.y})`, mech.owner);
             
-            // If mech health reaches 0, destroy it
+            // 如果高达生命值降至0，销毁它
             if (mech.health <= 0) {
                 const mechIndex = mechs.indexOf(mech);
                 mechs.splice(mechIndex, 1);
@@ -1471,63 +1757,69 @@ function aiMoveMech(mech) {
             }
         }
     } else {
-        // No viable targets in range, move towards nearest strategic target
-        const nearestTarget = findBestMechTarget(mech.x, mech.y, mech.owner);
-        
-        if (nearestTarget) {
-            // Calculate movement direction
-            const dx = nearestTarget.x - mech.x;
-            const dy = nearestTarget.y - mech.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+        // 范围内没有可行目标，移动向最近的战略目标
+        // 减少调用findBestMechTarget的频率，提高性能
+        if (Math.random() < 0.7) { // 30%的概率跳过寻找目标
+            const nearestTarget = findBestMechTarget(mech.x, mech.y, mech.owner);
             
-            if (distance > MECH_MOVEMENT_RADIUS) {
-                // Move towards the target
-                const moveDistance = MECH_MOVEMENT_RADIUS;
-                const ratio = moveDistance / distance;
+            if (nearestTarget) {
+                // 计算移动方向
+                const dx = nearestTarget.x - mech.x;
+                const dy = nearestTarget.y - mech.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
                 
-                const newX = Math.floor(mech.x + dx * ratio);
-                const newY = Math.floor(mech.y + dy * ratio);
-                
-                // Ensure we stay within board boundaries
-                mech.x = Math.max(0, Math.min(BOARD_SIZE - 1, newX));
-                mech.y = Math.max(0, Math.min(BOARD_SIZE - 1, newY));
-                mech.hasMoved = true;
-                
-                addLogEntry(`高达移动到 (${mech.x},${mech.y})`, mech.owner);
-            } else {
-                // We can reach the target directly
-                mech.x = nearestTarget.x;
-                mech.y = nearestTarget.y;
-                mech.hasMoved = true;
-                
-                // If it's an enemy cell adjacent to our territory, capture it
-                const cell = gameBoard[nearestTarget.y][nearestTarget.x];
-                if (cell.owner !== null && cell.owner !== mech.owner) {
-                    // Check if it's adjacent to our territory
-                    const isAdjacentToOwnTerritory = getNeighbors(nearestTarget.x, nearestTarget.y).some(n => {
-                        const neighborCell = gameBoard[n.y][n.x];
-                        return neighborCell.owner === mech.owner;
-                    });
+                if (distance > MECH_MOVEMENT_RADIUS) {
+                    // 向目标移动
+                    const moveDistance = MECH_MOVEMENT_RADIUS;
+                    const ratio = moveDistance / distance;
                     
-                    if (isAdjacentToOwnTerritory) {
-                        // Capture the cell
-                        mech.health -= MECH_ATTACK_COST;
-                        captureCell(mech.owner, nearestTarget.x, nearestTarget.y);
-                        
-                        addLogEntry(`高达占领了 (${nearestTarget.x},${nearestTarget.y})`, mech.owner);
-                        
-                        // If mech health reaches 0, destroy it
-                        if (mech.health <= 0) {
-                            const mechIndex = mechs.indexOf(mech);
-                            mechs.splice(mechIndex, 1);
-                            
-                            addLogEntry(`高达因损耗过大被摧毁`, mech.owner);
-                        }
-                    } else {
+                    const newX = Math.floor(mech.x + dx * ratio);
+                    const newY = Math.floor(mech.y + dy * ratio);
+                    
+                    // 确保在棋盘边界内
+                    mech.x = Math.max(0, Math.min(BOARD_SIZE - 1, newX));
+                    mech.y = Math.max(0, Math.min(BOARD_SIZE - 1, newY));
+                    mech.hasMoved = true;
+                    
+                    // 减少日志输出，提高性能
+                    if (Math.random() < 0.2) {
                         addLogEntry(`高达移动到 (${mech.x},${mech.y})`, mech.owner);
                     }
                 } else {
-                    addLogEntry(`高达移动到 (${mech.x},${mech.y})`, mech.owner);
+                    // 可以直接到达目标
+                    mech.x = nearestTarget.x;
+                    mech.y = nearestTarget.y;
+                    mech.hasMoved = true;
+                    
+                    // 如果是敌方格子且相邻己方领地，占领它
+                    const cell = gameBoard[nearestTarget.y][nearestTarget.x];
+                    if (cell.owner !== null && cell.owner !== mech.owner) {
+                        // 检查是否相邻己方领地
+                        const isAdjacentToOwnTerritory = getNeighbors(nearestTarget.x, nearestTarget.y).some(n => {
+                            const neighborCell = gameBoard[n.y][n.x];
+                            return neighborCell.owner === mech.owner;
+                        });
+                        
+                        if (isAdjacentToOwnTerritory) {
+                            // 占领格子
+                            mech.health -= MECH_ATTACK_COST;
+                            captureCell(mech.owner, nearestTarget.x, nearestTarget.y);
+                            
+                            addLogEntry(`高达占领了 (${nearestTarget.x},${nearestTarget.y})`, mech.owner);
+                            
+                            // 如果高达生命值降至0，销毁它
+                            if (mech.health <= 0) {
+                                const mechIndex = mechs.indexOf(mech);
+                                mechs.splice(mechIndex, 1);
+                                
+                                addLogEntry(`高达因损耗过大被摧毁`, mech.owner);
+                            }
+                        } else if (Math.random() < 0.2) { // 减少日志输出
+                            addLogEntry(`高达移动到 (${mech.x},${mech.y})`, mech.owner);
+                        }
+                    } else if (Math.random() < 0.2) { // 减少日志输出
+                        addLogEntry(`高达移动到 (${mech.x},${mech.y})`, mech.owner);
+                    }
                 }
             }
         }
@@ -1930,14 +2222,24 @@ gameSpeedSlider.addEventListener('input', () => {
 
 // Window resize event for charts
 window.addEventListener('resize', () => {
-    if (territoryChart && resourcesChart && mechsChart) {
-        territoryChart.resize();
-        resourcesChart.resize();
-        mechsChart.resize();
-    }
-    
-    // 重新渲染棋盘以更新高达位置
-    renderBoard();
+    // 使用防抖函数，避免频繁调整大小导致性能问题
+    clearTimeout(window.resizeTimeout);
+    window.resizeTimeout = setTimeout(() => {
+        if (territoryChart && resourcesChart && mechsChart) {
+            try {
+                territoryChart.resize();
+                resourcesChart.resize();
+                mechsChart.resize();
+            } catch (e) {
+                console.error("图表调整大小失败:", e);
+                // 尝试重新初始化图表
+                initCharts();
+            }
+        }
+        
+        // 重新渲染棋盘以更新高达位置
+        renderBoard();
+    }, 300); // 300毫秒延迟
 });
 
 // Initialize the game when DOM is loaded
@@ -1946,31 +2248,37 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 确保图表在加载完成后调整大小
     window.setTimeout(() => {
-        if (territoryChart && resourcesChart && mechsChart) {
-            territoryChart.resize();
-            resourcesChart.resize();
-            mechsChart.resize();
+        try {
+            if (territoryChart && resourcesChart && mechsChart) {
+                territoryChart.resize();
+                resourcesChart.resize();
+                mechsChart.resize();
+            }
+        } catch (e) {
+            console.error("初始化图表大小失败:", e);
+            // 尝试重新初始化图表
+            initCharts();
         }
-    }, 100);
+    }, 300);
 });
 
 // 计算部落领地受到威胁的程度（0-1）
 function calculateTerritoryThreat(tribeId) {
-    // 计算敌方高达与我方领地的接近程度
-    let threatLevel = 0;
-    let ownedCells = [];
-    
-    // 收集所有己方领地单元格
-    for (let y = 0; y < BOARD_SIZE; y++) {
-        for (let x = 0; x < BOARD_SIZE; x++) {
-            if (gameBoard[y][x].owner === tribeId) {
-                ownedCells.push({ x, y });
-            }
-        }
+    // 减少计算频率，使用缓存的威胁值
+    // 如果该部落有缓存的威胁值且缓存未过期，直接返回
+    if (tribes[tribeId].cachedThreat && 
+        tribes[tribeId].threatCacheTime && 
+        turnCounter - tribes[tribeId].threatCacheTime < 10) {
+        return tribes[tribeId].cachedThreat;
     }
     
+    // 计算敌方高达与我方领地的接近程度
+    let threatLevel = 0;
+    
     // 如果没有领地，威胁为0
-    if (ownedCells.length === 0) {
+    if (tribes[tribeId].territory === 0) {
+        tribes[tribeId].cachedThreat = 0;
+        tribes[tribeId].threatCacheTime = turnCounter;
         return 0;
     }
     
@@ -1979,33 +2287,110 @@ function calculateTerritoryThreat(tribeId) {
     
     // 如果没有敌方高达，威胁为0
     if (enemyMechs.length === 0) {
+        tribes[tribeId].cachedThreat = 0;
+        tribes[tribeId].threatCacheTime = turnCounter;
         return 0;
     }
     
-    // 计算每个敌方高达与最近的己方领地的距离
-    let minDistances = [];
-    enemyMechs.forEach(mech => {
+    // 收集所有己方领地单元格的边界点
+    // 只检查边界点可以大幅减少计算量
+    const boundaryPoints = [];
+    
+    // 如果高达数量和领地数量都很多，使用抽样方法
+    if (enemyMechs.length > 10 && tribes[tribeId].territory > 50) {
+        // 收集所有己方领地
+        const ownedCells = [];
+        for (let y = 0; y < BOARD_SIZE; y++) {
+            for (let x = 0; x < BOARD_SIZE; x++) {
+                if (gameBoard[y][x].owner === tribeId) {
+                    // 检查是否为边界点（至少有一个相邻点不属于己方）
+                    const neighbors = getNeighbors(x, y);
+                    const isBoundary = neighbors.some(n => {
+                        const neighborCell = gameBoard[n.y][n.x];
+                        return neighborCell.owner !== tribeId;
+                    });
+                    
+                    if (isBoundary) {
+                        ownedCells.push({ x, y });
+                    }
+                }
+            }
+        }
+        
+        // 随机抽取最多30个边界点
+        const sampleSize = Math.min(30, ownedCells.length);
+        for (let i = 0; i < sampleSize; i++) {
+            const randomIndex = Math.floor(Math.random() * ownedCells.length);
+            boundaryPoints.push(ownedCells[randomIndex]);
+            ownedCells.splice(randomIndex, 1);
+        }
+    } else {
+        // 收集所有边界点
+        for (let y = 0; y < BOARD_SIZE; y++) {
+            for (let x = 0; x < BOARD_SIZE; x++) {
+                if (gameBoard[y][x].owner === tribeId) {
+                    // 检查是否为边界点
+                    const neighbors = getNeighbors(x, y);
+                    const isBoundary = neighbors.some(n => {
+                        const neighborCell = gameBoard[n.y][n.x];
+                        return neighborCell.owner !== tribeId;
+                    });
+                    
+                    if (isBoundary) {
+                        boundaryPoints.push({ x, y });
+                    }
+                }
+            }
+        }
+    }
+    
+    // 如果敌方高达数量很多，只考虑最近的10个
+    let mechsToCheck = enemyMechs;
+    if (enemyMechs.length > 10) {
+        // 对每个边界点，找到最近的敌方高达
+        const mechDistances = new Map(); // 存储每个高达的最小距离
+        
+        boundaryPoints.forEach(point => {
+            enemyMechs.forEach(mech => {
+                const dist = Math.sqrt(Math.pow(mech.x - point.x, 2) + Math.pow(mech.y - point.y, 2));
+                const currentMin = mechDistances.get(mech) || Infinity;
+                mechDistances.set(mech, Math.min(currentMin, dist));
+            });
+        });
+        
+        // 根据最小距离排序高达
+        mechsToCheck = Array.from(mechDistances.entries())
+            .sort((a, b) => a[1] - b[1])
+            .slice(0, 10)
+            .map(entry => entry[0]);
+    }
+    
+    // 计算每个敌方高达与最近的己方边界点的距离
+    mechsToCheck.forEach(mech => {
         let minDist = Infinity;
-        ownedCells.forEach(cell => {
-            const dist = Math.sqrt(Math.pow(mech.x - cell.x, 2) + Math.pow(mech.y - cell.y, 2));
+        boundaryPoints.forEach(point => {
+            const dist = Math.sqrt(Math.pow(mech.x - point.x, 2) + Math.pow(mech.y - point.y, 2));
             minDist = Math.min(minDist, dist);
         });
-        minDistances.push(minDist);
-    });
-    
-    // 根据距离计算威胁度
-    // 距离小于15的高达构成威胁，距离越小威胁越大
-    minDistances.forEach(dist => {
-        if (dist < 15) {
+        
+        // 根据距离计算威胁度
+        // 距离小于15的高达构成威胁，距离越小威胁越大
+        if (minDist < 15) {
             // 距离为0时威胁为1，距离为15时威胁为0
-            const mechThreat = Math.max(0, (15 - dist) / 15);
+            const mechThreat = Math.max(0, (15 - minDist) / 15);
             // 累加威胁，但给予一定衰减以避免多个远距离高达导致过高威胁
             threatLevel += mechThreat * mechThreat;
         }
     });
     
     // 标准化威胁度到0-1范围
-    return Math.min(1, threatLevel);
+    const normalizedThreat = Math.min(1, threatLevel);
+    
+    // 缓存计算结果
+    tribes[tribeId].cachedThreat = normalizedThreat;
+    tribes[tribeId].threatCacheTime = turnCounter;
+    
+    return normalizedThreat;
 }
 
 // 计算部落领地紧凑度
@@ -2065,4 +2450,218 @@ function countAdjacentOwnedCells(x, y, tribeId) {
     });
     
     return count;
-} 
+}
+
+// 创建一个新的经济优先扩张策略函数
+function handleEconomicGrowthState(tribe, effectiveResources, mechCount, upgradableCells, expandableCells, reachableHighValueCells, ownedHighValueCells) {
+    // 经济优先扩张策略：平衡经济发展和领土扩张，优先考虑高价值点和资源收入
+    
+    // 第一优先级：升级现有高价值点到最高等级
+    // 先升级等级较高的点，因为它们能提供更多收入
+    if (upgradableCells.length > 0) {
+        // 按等级从高到低排序，优先升级接近最高等级的点
+        upgradableCells.sort((a, b) => b.level - a.level);
+        
+        // 找出接近最高等级的点
+        const highLevelCells = upgradableCells.filter(cell => cell.level >= MAX_UPGRADE_LEVEL - 1);
+        
+        if (highLevelCells.length > 0) {
+            const cellToUpgrade = highLevelCells[0];
+            const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
+            
+            if (effectiveResources >= upgradeCost) {
+                upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
+                addLogEntry(`经济优先：将高价值点升级到最高等级`, tribe.id);
+                return;
+            }
+        }
+        
+        // 如果没有接近最高等级的点，则升级任何可升级的点
+        // 此时按等级从低到高排序，优先升级低等级点(投资回报率更高)
+        upgradableCells.sort((a, b) => a.level - b.level);
+        const cellToUpgrade = upgradableCells[0];
+        const upgradeCost = Math.pow(UPGRADE_COST_MULTIPLIER, cellToUpgrade.level);
+        
+        if (effectiveResources >= upgradeCost * 1.2) { // 保留一些资源用于扩张
+            upgradeCell(tribe.id, cellToUpgrade.x, cellToUpgrade.y);
+            addLogEntry(`经济优先：升级低等级高价值点提高收入`, tribe.id);
+            return;
+        }
+    }
+    
+    // 第二优先级：扩张到附近的高价值点
+    if (reachableHighValueCells.length > 0 && effectiveResources > EXPANSION_COST) {
+        // 按距离和潜在价值排序
+        reachableHighValueCells.sort((a, b) => {
+            // 首先考虑距离
+            const aDistance = getMinDistanceToOwnedCells(a.x, a.y, tribe.id);
+            const bDistance = getMinDistanceToOwnedCells(b.x, b.y, tribe.id);
+            
+            // 如果距离相差不大，优先考虑周围有更多空格的高价值点（有更大扩张潜力）
+            if (Math.abs(aDistance - bDistance) <= 2) {
+                const aEmptyNeighbors = getNeighbors(a.x, a.y).filter(n => 
+                    gameBoard[n.y][n.x].owner === null
+                ).length;
+                
+                const bEmptyNeighbors = getNeighbors(b.x, b.y).filter(n => 
+                    gameBoard[n.y][n.x].owner === null
+                ).length;
+                
+                return bEmptyNeighbors - aEmptyNeighbors;
+            }
+            
+            return aDistance - bDistance;
+        });
+        
+        expandToCell(tribe.id, reachableHighValueCells[0].x, reachableHighValueCells[0].y);
+        addLogEntry(`经济优先：扩张到高价值点增加收入`, tribe.id);
+        return;
+    }
+    
+    // 第三优先级：战略性扩张，优先考虑能形成更紧凑领地的格子
+    if (expandableCells.length > 0 && effectiveResources > EXPANSION_COST * 1.5) {
+        // 计算当前领地的紧凑度
+        const currentCompactness = calculateTerritoryCompactness(tribe.id);
+        
+        // 按照以下标准对可扩张格子进行排序：
+        // 1. 高价值点优先
+        // 2. 能提高领地紧凑度的优先
+        // 3. 与更多己方格子相邻的优先
+        expandableCells.sort((a, b) => {
+            // 高价值点优先
+            if (a.highValue && !b.highValue) return -1;
+            if (!a.highValue && b.highValue) return 1;
+            
+            // 计算连通性
+            const aConnectivity = countAdjacentOwnedCells(a.x, a.y, tribe.id);
+            const bConnectivity = countAdjacentOwnedCells(b.x, b.y, tribe.id);
+            
+            // 高连通性优先
+            return bConnectivity - aConnectivity;
+        });
+        
+        // 计算可以扩张的数量，保守扩张以保持资源积累
+        const maxExpansions = Math.min(
+            expandableCells.length,
+            Math.floor(Math.log2(effectiveResources / EXPANSION_COST))
+        );
+        
+        if (maxExpansions > 0) {
+            // 扩张数量根据资源情况动态调整，但保持保守
+            const numExpansions = Math.min(2, Math.ceil(maxExpansions / 2));
+            let expansionCost = 0;
+            
+            for (let i = 0; i < numExpansions && i < expandableCells.length; i++) {
+                const cell = expandableCells[i];
+                const thisCost = Math.pow(2, i);
+                
+                if (effectiveResources >= thisCost + expansionCost + EXPANSION_COST) { // 保留一些资源
+                    expandToCell(tribe.id, cell.x, cell.y);
+                    expansionCost += thisCost;
+                } else {
+                    break;
+                }
+            }
+            
+            addLogEntry(`经济优先：战略性扩张，保持资源积累`, tribe.id);
+            return;
+        }
+    }
+    
+    // 第四优先级：积累资源，为未来大规模升级或扩张做准备
+    // 如果资源较少或没有好的扩张/升级选择，就保存资源
+    if (effectiveResources < MECH_COST * 0.8 || 
+        (upgradableCells.length === 0 && reachableHighValueCells.length === 0)) {
+        addLogEntry(`经济优先：积累资源为未来发展做准备`, tribe.id);
+        return;
+    }
+    
+    // 第五优先级：在资源充足且没有好的扩张/升级选择时，考虑制造高达
+    if (tribe.resources >= MECH_COST * 2.0 && 
+        tribe.territory >= 30 && 
+        tribe.income / (tribe.expenses + MECH_MAINTENANCE) >= 3.0 &&
+        mechCount < Math.floor(tribe.territory / 40)) {
+        createMech(tribe.id);
+        addLogEntry(`经济优先：资源充足，制造高达保护领地`, tribe.id);
+    }
+}
+
+// 主动检查并回收高达以避免经济破产
+function checkAndRecycleMechs(tribeId) {
+    const tribe = tribes[tribeId];
+    const tribeMechs = mechs.filter(m => m.owner === tribeId);
+    
+    // 如果没有高达，无需回收
+    if (tribeMechs.length === 0) {
+        return;
+    }
+    
+    // 计算经济指标
+    const incomePerTurn = tribe.income;
+    const expensesPerTurn = tribe.expenses;
+    const resourceBalance = tribe.resources;
+    const turnsUntilBankrupt = resourceBalance > 0 ? resourceBalance / Math.max(1, (expensesPerTurn - incomePerTurn)) : 0;
+    
+    // 经济危机判断条件
+    const isEconomicCrisis = 
+        (incomePerTurn < expensesPerTurn && resourceBalance < expensesPerTurn * 3) || // 入不敷出且资源少于3回合支出
+        (turnsUntilBankrupt > 0 && turnsUntilBankrupt < 5) || // 5回合内将破产
+        (resourceBalance < 0); // 已经破产
+    
+    // 经济警戒判断条件
+    const isEconomicWarning =
+        (incomePerTurn < expensesPerTurn && resourceBalance < expensesPerTurn * 8) || // 入不敷出且资源少于8回合支出
+        (turnsUntilBankrupt > 0 && turnsUntilBankrupt < 10); // 10回合内将破产
+    
+    if (isEconomicCrisis) {
+        // 经济危机：回收多个高达以立即恢复经济
+        const mechsToRecycle = Math.min(
+            tribeMechs.length, 
+            Math.ceil(tribeMechs.length * 0.4) // 回收约40%的高达
+        );
+        
+        if (mechsToRecycle > 0) {
+            // 按照生命值排序，优先回收生命值较低的高达
+            tribeMechs.sort((a, b) => a.health - b.health);
+            
+            for (let i = 0; i < mechsToRecycle; i++) {
+                const mechToRecycle = tribeMechs[i];
+                const mechIndex = mechs.indexOf(mechToRecycle);
+                
+                if (mechIndex !== -1) {
+                    mechs.splice(mechIndex, 1);
+                    tribe.resources += MECH_SALVAGE_VALUE;
+                    addLogEntry(`经济危机！主动回收生命值为 ${mechToRecycle.health} 的高达，获得 ${MECH_SALVAGE_VALUE} 资源`, tribe.id);
+                }
+            }
+            
+            // 更新支出
+            tribe.expenses = mechs.filter(m => m.owner === tribe.id).length * MECH_MAINTENANCE;
+        }
+    } else if (isEconomicWarning && tribeMechs.length >= 3) {
+        // 经济警戒：回收少量高达作为预防措施
+        const mechsToRecycle = Math.min(
+            tribeMechs.length - 2, // 至少保留2个高达
+            Math.ceil(tribeMechs.length * 0.2) // 回收约20%的高达
+        );
+        
+        if (mechsToRecycle > 0) {
+            // 按照生命值排序，优先回收生命值较低的高达
+            tribeMechs.sort((a, b) => a.health - b.health);
+            
+            for (let i = 0; i < mechsToRecycle; i++) {
+                const mechToRecycle = tribeMechs[i];
+                const mechIndex = mechs.indexOf(mechToRecycle);
+                
+                if (mechIndex !== -1) {
+                    mechs.splice(mechIndex, 1);
+                    tribe.resources += MECH_SALVAGE_VALUE;
+                    addLogEntry(`经济警戒！主动回收生命值为 ${mechToRecycle.health} 的高达，获得 ${MECH_SALVAGE_VALUE} 资源`, tribe.id);
+                }
+            }
+            
+            // 更新支出
+            tribe.expenses = mechs.filter(m => m.owner === tribe.id).length * MECH_MAINTENANCE;
+        }
+    }
+}
